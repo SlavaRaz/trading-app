@@ -1,10 +1,17 @@
 import { Tabs } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, Text } from 'react-native';
 
-function TabIcon({ focused, color, name }: { focused: boolean; color: string; name: string }) {
+const TAB_ICONS: Record<string, string> = {
+  markets: '◈',
+  watchlist: '★',
+};
+
+function TabIcon({ focused, name }: { focused: boolean; name: string }) {
   return (
     <View style={[styles.iconContainer, focused && styles.iconFocused]}>
-      {/* Icon placeholder — swap with expo-vector-icons when desired */}
+      <Text style={[styles.iconText, focused && styles.iconTextFocused]}>
+        {TAB_ICONS[name] ?? '●'}
+      </Text>
     </View>
   );
 }
@@ -24,18 +31,14 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Markets',
-          tabBarIcon: ({ focused, color }) => (
-            <TabIcon focused={focused} color={color} name="markets" />
-          ),
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} name="markets" />,
         }}
       />
       <Tabs.Screen
         name="watchlist"
         options={{
           title: 'Watchlist',
-          tabBarIcon: ({ focused, color }) => (
-            <TabIcon focused={focused} color={color} name="watchlist" />
-          ),
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} name="watchlist" />,
         }}
       />
     </Tabs>
@@ -55,13 +58,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   iconContainer: {
-    width: 24,
-    height: 24,
+    width: 28,
+    height: 28,
     justifyContent: 'center',
     alignItems: 'center',
+    borderRadius: 8,
   },
   iconFocused: {
     backgroundColor: 'rgba(34,211,238,0.15)',
-    borderRadius: 6,
+  },
+  iconText: {
+    fontSize: 16,
+    color: '#6b7280',
+  },
+  iconTextFocused: {
+    color: '#22d3ee',
   },
 });

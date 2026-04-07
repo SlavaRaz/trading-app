@@ -18,11 +18,12 @@ const POPULAR_SYMBOLS = ['AAPL', 'TSLA', 'MSFT', 'AMZN', 'GOOGL', 'BTC-USD', 'ET
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { addToWatchlist } = useTradeStore();
+  const { watchlist, addToWatchlist } = useTradeStore();
 
   const [query, setQuery] = useState('');
   const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [addedFlash, setAddedFlash] = useState<string | null>(null);
 
   const navigateToChart = useCallback(
     async (symbol: string) => {
@@ -45,6 +46,15 @@ export default function HomeScreen() {
   );
 
   const handleSearch = () => navigateToChart(query);
+
+  const handleQuickAdd = useCallback(
+    (symbol: string) => {
+      addToWatchlist(symbol);
+      setAddedFlash(symbol);
+      setTimeout(() => setAddedFlash(null), 1500);
+    },
+    [addToWatchlist],
+  );
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -87,11 +97,24 @@ export default function HomeScreen() {
           keyExtractor={(item) => item}
           numColumns={2}
           columnWrapperStyle={styles.columnWrapper}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={styles.chip} onPress={() => navigateToChart(item)}>
-              <Text style={styles.chipText}>{item}</Text>
-            </TouchableOpacity>
-          )}
+          renderItem={({ item }) => {
+            const inWatchlist = watchlist.includes(item);
+            const justAdded = addedFlash === item;
+            return (
+              <TouchableOpacity style={styles.chip} onPress={() => navigateToChart(item)}>
+                <Text style={styles.chipText}>{item}</Text>
+                <TouchableOpacity
+                  style={[styles.addBtn, inWatchlist && styles.addBtnActive]}
+                  onPress={() => !inWatchlist && handleQuickAdd(item)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={[styles.addBtnText, inWatchlist && styles.addBtnTextActive]}>
+                    {inWatchlist ? (justAdded ? '✓' : '★') : '+'}
+                  </Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            );
+          }}
         />
       </View>
     </SafeAreaView>
@@ -132,9 +155,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#1f2937',
     borderRadius: 10,
     paddingVertical: 14,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: '#374151',
   },
   chipText: { color: '#f9fafb', fontWeight: '600', fontSize: 15 },
+  addBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#374151',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addBtnActive: { backgroundColor: 'rgba(34,211,238,0.15)' },
+  addBtnText: { color: '#9ca3af', fontSize: 14, fontWeight: '700', lineHeight: 18 },
+  addBtnTextActive: { color: '#22d3ee' },
 });
