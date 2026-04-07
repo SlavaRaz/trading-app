@@ -17,16 +17,12 @@ _SYSTEM_PROMPT = """You are an expert trading analyst and chart pattern speciali
 You have deep knowledge of technical analysis, chart patterns, risk management, and trading psychology.
 When given OHLC data and detected patterns for a symbol, provide clear, actionable analysis.
 Keep responses concise (3–5 sentences max unless more detail is asked for).
+Reference specific price levels (entry, target, stop-loss) from the chart context when relevant.
 Always note that trading involves risk and is not financial advice."""
 
 
-def stream_chat_response(
-    symbol: str,
-    user_message: str,
-    patterns: list[dict],
-    ohlc_summary: dict,
-) -> Generator[str, None, None]:
-    context_parts = [f"Symbol: {symbol}"]
+def _build_chart_context(symbol: str, ohlc_summary: dict, patterns: list[dict]) -> str:
+    parts = [f"Symbol: {symbol}"]
 
     if ohlc_summary:
         trend_pct = ohlc_summary.get("trend_pct")
@@ -35,7 +31,7 @@ def stream_chat_response(
         vol_str = f"{avg_vol:,}" if avg_vol else "N/A"
         period = ohlc_summary.get("period", "")
 
-        context_parts.append(
+        parts.append(
             f"Price summary{f' ({period})' if period else ''} — "
             f"Close: {ohlc_summary.get('close')}, "
             f"High: {ohlc_summary.get('high')}, "
@@ -54,13 +50,39 @@ def stream_chat_response(
             f"confidence {p.get('confidence')}, rating {p.get('rr_rating')}"
             for p in patterns
         ]
-        context_parts.append("Detected patterns:\n" + "\n".join(pattern_lines))
+        parts.append("Detected patterns:\n" + "\n".join(pattern_lines))
+    else:
+        parts.append("No patterns detected for this period.")
 
-    context = "\n".join(context_parts)
-    messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user", "content": f"Chart context:\n{context}\n\nQuestion: {user_message}"},
-    ]
+    return "\n".join(parts)
+
+
+def stream_chat_response(
+    symbol: str,
+    user_message: str,
+    patterns: list[dict],
+    ohlc_summary: dict,
+    history: list[dict] | None = None,
+) -> Generator[str, None, None]:
+    chart_context = _build_chart_context(symbol, ohlc_summary, patterns)
+
+    # Embed chart context in the system prompt so it persists across all turns
+    system_with_context = (
+        f"{_SYSTEM_PROMPT}\n\n"
+        f"## Current chart context (always reference this):\n{chart_context}"
+    )
+
+    messages: list[dict] = [{"role": "system", "content": system_with_context}]
+
+    # Inject prior conversation turns for multi-turn support
+    if history:
+        for turn in history:
+            role = turn.get("role", "")
+            content = turn.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+
+    messages.append({"role": "user", "content": user_message})
 
     try:
         with _client.chat.completions.create(

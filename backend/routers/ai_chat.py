@@ -16,11 +16,17 @@ class OhlcSummary(BaseModel):
     period: str = ""
 
 
+class HistoryMessage(BaseModel):
+    role: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     symbol: str
     message: str
     patterns: list[dict] = []
     ohlc_summary: OhlcSummary = OhlcSummary()
+    history: list[HistoryMessage] = []
 
 
 @router.post("/chat")
@@ -30,5 +36,6 @@ def chat(request: ChatRequest):
         user_message=request.message,
         patterns=request.patterns,
         ohlc_summary=request.ohlc_summary.model_dump(),
+        history=[m.model_dump() for m in request.history],
     )
     return StreamingResponse(generator, media_type="text/event-stream")

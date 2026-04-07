@@ -21,6 +21,11 @@ interface Message {
   isStreaming?: boolean;
 }
 
+interface HistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 interface Props {
   symbol: string;
   patterns: PatternResult[];
@@ -37,6 +42,7 @@ const SUGGESTED_PROMPTS = [
 
 /**
  * Bottom-sheet chat drawer that streams AI responses for the current chart.
+ * Supports multi-turn conversation by sending prior message history to the backend.
  */
 export function AIChatDrawer({ symbol, patterns, ohlcSummary, onClose }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -48,6 +54,11 @@ export function AIChatDrawer({ symbol, patterns, ohlcSummary, onClose }: Props) 
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || isSending) return;
+
+      // Snapshot completed messages to build history before adding new ones
+      const history: HistoryMessage[] = messages
+        .filter((m) => !m.isStreaming && m.content.length > 0)
+        .map((m) => ({ role: m.role, content: m.content }));
 
       const userMsg: Message = { id: Date.now().toString(), role: 'user', content: trimmed };
       const assistantId = (Date.now() + 1).toString();
@@ -66,6 +77,7 @@ export function AIChatDrawer({ symbol, patterns, ohlcSummary, onClose }: Props) 
             message: trimmed,
             patterns,
             ohlc_summary: ohlcSummary,
+            history,
           }),
         });
 
@@ -74,7 +86,8 @@ export function AIChatDrawer({ symbol, patterns, ohlcSummary, onClose }: Props) 
         let accumulated = '';
 
         if (reader) {
-          while (true) {
+          let streamDone = false;
+          while (!streamDone) {
             const { done, value } = await reader.read();
             if (done) break;
 
@@ -84,7 +97,10 @@ export function AIChatDrawer({ symbol, patterns, ohlcSummary, onClose }: Props) 
             for (const line of lines) {
               if (!line.startsWith('data: ')) continue;
               const data = line.slice(6);
-              if (data === '[DONE]') break;
+              if (data === '[DONE]') {
+                streamDone = true;
+                break;
+              }
               if (data.startsWith('[ERROR]')) {
                 accumulated += `\n${data}`;
               } else {
@@ -119,7 +135,7 @@ export function AIChatDrawer({ symbol, patterns, ohlcSummary, onClose }: Props) 
         flatListRef.current?.scrollToEnd({ animated: true });
       }
     },
-    [symbol, patterns, ohlcSummary, isSending],
+    [symbol, patterns, ohlcSummary, isSending, messages],
   );
 
   return (
@@ -129,11 +145,18 @@ export function AIChatDrawer({ symbol, patterns, ohlcSummary, onClose }: Props) 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.drawer}
       >
+        {/* Drag handle — centered above the header row */}
+        <View style={styles.handleContainer}>
+          <View style={styles.handle} />
+        </View>
+
         {/* Header */}
         <View style={styles.drawerHeader}>
-          <View style={styles.handle} />
           <Text style={styles.drawerTitle}>AI Analyst — {symbol}</Text>
-          <TouchableOpacity onPress={onClose} hitSlop={12}>
+          <TouchableOpacity
+            onPress={onClose}
+            hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}
+          >
             <Text style={styles.closeBtn}>✕</Text>
           </TouchableOpacity>
         </View>
@@ -159,10 +182,17 @@ export function AIChatDrawer({ symbol, patterns, ohlcSummary, onClose }: Props) 
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           renderItem={({ item }) => (
             <View style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.aiBubble]}>
-              <Text style={[styles.bubbleText, item.role === 'user' ? styles.userText : styles.aiText]}>
-                {item.content}
-                {item.isStreaming ? '▌' : ''}
-              </Text>
+              {item.role === 'assistant' && item.isStreaming && item.content.length === 0 ? (
+                <View style={styles.thinkingRow}>
+                  <ActivityIndicator size="small" color="#9ca3af" style={styles.thinkingSpinner} />
+                  <Text style={styles.thinkingText}>Thinking…</Text>
+                </View>
+              ) : (
+                <Text style={[styles.bubbleText, item.role === 'user' ? styles.userText : styles.aiText]}>
+                  {item.content}
+                  {item.isStreaming ? '▌' : ''}
+                </Text>
+              )}
             </View>
           )}
         />
@@ -211,15 +241,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingBottom: 14,
+    paddingTop: 4,
     borderBottomWidth: 1,
     borderBottomColor: '#1f2937',
   },
+  handleContainer: {
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
   handle: {
-    position: 'absolute',
-    top: 8,
-    alignSelf: 'center',
-    left: '50%',
     width: 36,
     height: 4,
     borderRadius: 2,
@@ -245,6 +277,9 @@ const styles = StyleSheet.create({
   bubbleText: { fontSize: 14, lineHeight: 20 },
   userText: { color: '#0f0f0f' },
   aiText: { color: '#f9fafb' },
+  thinkingRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  thinkingSpinner: { opacity: 0.7 },
+  thinkingText: { color: '#6b7280', fontSize: 13, fontStyle: 'italic' },
   inputRow: {
     flexDirection: 'row',
     gap: 10,
