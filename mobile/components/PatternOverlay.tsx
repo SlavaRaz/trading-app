@@ -1,59 +1,88 @@
-import { View, StyleSheet } from 'react-native';
+import { useMemo } from 'react';
+import { Group, Rect, Path, Skia } from '@shopify/react-native-skia';
 import type { PatternResult } from '@/store/useTradeStore';
 
 interface Props {
-  pattern: PatternResult | null;
-  chartHeight: number;
+  pattern: PatternResult;
   chartWidth: number;
-  minPrice: number;
-  maxPrice: number;
+  priceChartHeight: number;
+  toY: (price: number) => number;
+}
+
+/** Creates a dashed horizontal path at the given Y position across the chart width. */
+function makeDashedLine(y: number, width: number, dashLen = 7, gapLen = 5): ReturnType<typeof Skia.Path.Make> {
+  const path = Skia.Path.Make();
+  let x = 0;
+  let isDash = true;
+  while (x < width) {
+    if (isDash) {
+      path.moveTo(x, y);
+      path.lineTo(Math.min(x + dashLen, width), y);
+    }
+    x += isDash ? dashLen : gapLen;
+    isDash = !isDash;
+  }
+  return path;
 }
 
 /**
- * Renders dashed horizontal lines for entry, target, and stop-loss on the chart canvas.
- * Coordinate math mirrors CandlestickChart's toY function.
+ * Renders pattern overlay elements inside a Skia Canvas:
+ * - Semi-transparent shaded zones between entry→target (green) and entry→stop-loss (red)
+ * - Dashed lines for entry (cyan), target (green), and stop-loss (red)
+ *
+ * Must be rendered as a child of a <Canvas> component.
  */
-export function PatternOverlay({ pattern, chartHeight, chartWidth, minPrice, maxPrice }: Props) {
-  if (!pattern) return null;
+export function PatternOverlay({ pattern, chartWidth, priceChartHeight, toY }: Props) {
+  const entryY = toY(pattern.entry_price);
+  const targetY = toY(pattern.target_price);
+  const slY = toY(pattern.stop_loss);
 
-  const priceRange = maxPrice - minPrice || 1;
-  const toY = (price: number) =>
-    chartHeight - 20 - ((price - minPrice) / priceRange) * (chartHeight - 40);
+  const { entryPath, targetPath, slPath } = useMemo(
+    () => ({
+      entryPath: makeDashedLine(entryY, chartWidth),
+      targetPath: makeDashedLine(targetY, chartWidth),
+      slPath: makeDashedLine(slY, chartWidth),
+    }),
+    [entryY, targetY, slY, chartWidth],
+  );
 
-  const lines = [
-    { price: pattern.entry_price, color: '#22d3ee' },
-    { price: pattern.target_price, color: '#34d399' },
-    { price: pattern.stop_loss, color: '#f87171' },
-  ];
+  // Shaded zone geometry — clamped to the price chart area
+  const clamp = (v: number) => Math.max(0, Math.min(priceChartHeight, v));
+
+  const gainZoneTop = clamp(Math.min(entryY, targetY));
+  const gainZoneH = clamp(Math.max(entryY, targetY)) - gainZoneTop;
+
+  const riskZoneTop = clamp(Math.min(entryY, slY));
+  const riskZoneH = clamp(Math.max(entryY, slY)) - riskZoneTop;
 
   return (
-    <>
-      {lines.map(({ price, color }) => {
-        const y = toY(price);
-        if (y < 0 || y > chartHeight) return null;
-        return (
-          <View
-            key={`${color}-${price}`}
-            style={[
-              styles.line,
-              {
-                top: y,
-                width: chartWidth,
-                borderColor: color,
-              },
-            ]}
-          />
-        );
-      })}
-    </>
+    <Group>
+      {/* Gain zone: entry → target */}
+      <Rect
+        x={0}
+        y={gainZoneTop}
+        width={chartWidth}
+        height={gainZoneH}
+        color="rgba(52, 211, 153, 0.07)"
+      />
+
+      {/* Risk zone: entry → stop-loss */}
+      <Rect
+        x={0}
+        y={riskZoneTop}
+        width={chartWidth}
+        height={riskZoneH}
+        color="rgba(248, 113, 113, 0.07)"
+      />
+
+      {/* Entry line — cyan dashed */}
+      <Path path={entryPath} color="#22d3ee" strokeWidth={1.5} style="stroke" />
+
+      {/* Target line — green dashed */}
+      <Path path={targetPath} color="#34d399" strokeWidth={1.5} style="stroke" />
+
+      {/* Stop-loss line — red dashed */}
+      <Path path={slPath} color="#f87171" strokeWidth={1.5} style="stroke" />
+    </Group>
   );
 }
-
-const styles = StyleSheet.create({
-  line: {
-    position: 'absolute',
-    left: 0,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderStyle: 'dashed',
-  },
-});
